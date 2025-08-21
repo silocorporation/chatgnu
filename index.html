@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Command Interpreter</title>
+<style>
+body { font-family: sans-serif; padding: 20px; }
+textarea { width: 100%; margin-bottom: 10px; }
+pre { background: #f0f0f0; padding: 10px; }
+.sim-bar { background: #ddd; width: 100%; height: 20px; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+.sim-fill { background: #4f46e5; height: 20px; width: 0%; }
+</style>
+</head>
+<body>
+<h1>Command Interpreter</h1>
+<textarea id="input" rows="4" placeholder="Type a command..."></textarea>
+<button id="interpretBtn">Refine & Interpret</button>
+
+<h2>Verbose Interpretation:</h2>
+<pre id="verbose"></pre>
+
+<h2>Similarity Score:</h2>
+<div class="sim-bar"><div id="simFill" class="sim-fill"></div></div>
+
+<h2>Top Snippets:</h2>
+<ul id="snippets"></ul>
+
+<h2>Brain (Scheduled Pseudocode):</h2>
+<pre id="brain"></pre>
+
+<script>
+// Mini dictionary + snippets
+const DICTIONARY = {
+  stop: new Set(["the","a","an","and","or","but","of","to","in","on","for","with","by","is","are","be","it","this","that"]),
+  synonyms: { build: ["create","make"], website: ["webapp","site"], fetch: ["get","retrieve"] },
+  antonyms: { build: ["destroy"], fetch: ["push"] },
+};
+
+const SNIPPETS = [
+  { id: "py-http", language: "python", tags: ["http","get"], snippet: "import requests\nresp = requests.get(url)" },
+  { id: "js-fetch", language: "javascript", tags: ["http","get"], snippet: "const resp = await fetch(url);" },
+  { id: "py-file", language: "python", tags: ["file","read"], snippet: "with open('file.txt','r') as f:\n  data = f.read()" },
+  { id: "js-file", language: "javascript", tags: ["file","read"], snippet: "const fs = require('fs');\nconst data = fs.readFileSync('file.txt','utf8');" },
+];
+
+let commands = [];
+
+function normalize(str) {
+  return str.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+}
+
+function tokenize(str) {
+  return normalize(str).split(" ").filter(t => t && !DICTIONARY.stop.has(t));
+}
+
+// Simple cosine similarity
+function cosineSim(aTokens, bTokens) {
+  const freq = tokens => {
+    const f = new Map();
+    tokens.forEach(t => f.set(t, (f.get(t)||0)+1));
+    return f;
+  };
+  const a = freq(aTokens), b = freq(bTokens);
+  const all = new Set([...a.keys(), ...b.keys()]);
+  let dot=0,a2=0,b2=0;
+  all.forEach(t=>{dot += (a.get(t)||0)*(b.get(t)||0);});
+  a.forEach(v=>{a2+=v*v;}); b.forEach(v=>{b2+=v*v;});
+  if(a2===0||b2===0) return 0;
+  return dot/Math.sqrt(a2*b2);
+}
+
+function runInterpretation() {
+  const inputEl = document.getElementById("input");
+  const input = inputEl.value;
+  if(!input.trim()) return;
+
+  const tokens = tokenize(input);
+  const sims = commands.map(c=>cosineSim(tokens, tokenize(c.raw)));
+  const simScore = sims.length ? Math.max(...sims) : 0;
+  const sim01k = Math.round(simScore*1000);
+
+  // Snippet scoring
+  const scoredSnippets = SNIPPETS.map(s=>{
+    let score=0;
+    s.tags.forEach(t=>{ if(tokens.includes(t)) score++; });
+    return {...s, score};
+  }).sort((a,b)=>b.score-a.score).slice(0,5);
+
+  // Verbose template
+  const expanded = tokens.concat(tokens.map(t=>DICTIONARY.synonyms[t]||[]).flat());
+  const antonyms = tokens
